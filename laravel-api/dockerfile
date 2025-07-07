@@ -1,0 +1,66 @@
+# ------------------------------
+# Stage 1: Build assets with Node + Vite
+# ------------------------------
+    FROM node:20-alpine AS node_builder
+
+    WORKDIR /laravel-api
+    
+    COPY laravel-api/package.json ./
+    RUN npm install
+    COPY laravel-api/. .
+    RUN npm run build
+    
+    # ------------------------------
+    # Stage 2: PHP + Nginx + Laravel
+    # ------------------------------
+    FROM php:8.2-fpm-alpine
+    
+    RUN apk add --no-cache \
+        nginx \
+        bash \
+        curl \
+        git \
+        libpng-dev \
+        libjpeg-turbo-dev \
+        libwebp-dev \
+        libxpm-dev \
+        freetype-dev \
+        oniguruma-dev \
+        icu-dev \
+        zip \
+        unzip \
+        libzip-dev
+    
+    RUN docker-php-ext-configure gd \
+        --with-freetype \
+        --with-jpeg \
+        --with-webp \
+        --with-xpm \
+     && docker-php-ext-install \
+        pdo_mysql \
+        mbstring \
+        gd \
+        intl \
+        zip \
+        opcache
+    
+    COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+    
+    WORKDIR /var/www/html
+    
+    COPY laravel-api/. .
+    
+    COPY --from=node_builder /laravel-api/public/build /var/www/html/public/build
+    
+    RUN composer install --optimize-autoloader --no-dev
+    
+    RUN chown -R www-data:www-data /var/www/html \
+        && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
+    
+    COPY nginx.conf /etc/nginx/nginx.conf
+    COPY default.conf /etc/nginx/conf.d/default.conf
+    
+    EXPOSE 80
+    
+    CMD ["sh", "-c", "php-fpm -D && nginx -g 'daemon off;'"]
+    
